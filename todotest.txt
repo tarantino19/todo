@@ -1,0 +1,404 @@
+package todo
+
+import (
+	"encoding/json"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestAdd(t *testing.T) {
+	l := &List{}
+
+	taskName := "New Task"
+	l.Add(taskName)
+
+	if len(*l) != 1 {
+		t.Errorf("Expected 1 item, got %d", len(*l))
+	}
+
+	if (*l)[0].Task != taskName {
+		t.Errorf("Expected %q, got %q", taskName, (*l)[0].Task)
+	}
+
+	if (*l)[0].Done != false {
+		t.Errorf("Expected Done to be false, got %t", (*l)[0].Done)
+	}
+
+	if (*l)[0].CreatedAt.IsZero() {
+		t.Error("Expected CreatedAt to be set")
+	}
+
+	if !(*l)[0].CompletedAt.IsZero() {
+		t.Error("Expected CompletedAt to be zero")
+	}
+}
+
+func TestAddMultiple(t *testing.T) {
+	l := &List{}
+
+	tasks := []string{"Task 1", "Task 2", "Task 3"}
+
+	for _, task := range tasks {
+		l.Add(task)
+	}
+
+	if len(*l) != 3 {
+		t.Errorf("Expected 3 items, got %d", len(*l))
+	}
+
+	for i, task := range tasks {
+		if (*l)[i].Task != task {
+			t.Errorf("Expected %q, got %q", task, (*l)[i].Task)
+		}
+	}
+}
+
+func TestComplete(t *testing.T) {
+	l := &List{}
+	taskName := "Test Task"
+	l.Add(taskName)
+
+	err := l.Complete(1)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if (*l)[0].Done != true {
+		t.Errorf("Expected Done to be true, got %t", (*l)[0].Done)
+	}
+
+	if (*l)[0].CompletedAt.IsZero() {
+		t.Error("Expected CompletedAt to be set")
+	}
+}
+
+func TestCompleteInvalidIndex(t *testing.T) {
+	l := &List{}
+	l.Add("Test Task")
+
+	testCases := []struct {
+		index int
+		desc  string
+	}{
+		{0, "zero index"},
+		{-1, "negative index"},
+		{2, "index too high"},
+	}
+
+	for _, tc := range testCases {
+		err := l.Complete(tc.index)
+		if err == nil {
+			t.Errorf("Expected error for %s (index %d), got none", tc.desc, tc.index)
+		}
+	}
+}
+
+func TestCompleteEmptyList(t *testing.T) {
+	l := &List{}
+
+	err := l.Complete(1)
+	if err == nil {
+		t.Error("Expected error for empty list, got none")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	l := &List{}
+	tasks := []string{"Task 1", "Task 2", "Task 3"}
+
+	for _, task := range tasks {
+		l.Add(task)
+	}
+
+	err := l.Delete(2) // Delete middle item
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if len(*l) != 2 {
+		t.Errorf("Expected 2 items after deletion, got %d", len(*l))
+	}
+
+	if (*l)[0].Task != "Task 1" {
+		t.Errorf("Expected first item to be 'Task 1', got %q", (*l)[0].Task)
+	}
+
+	if (*l)[1].Task != "Task 3" {
+		t.Errorf("Expected second item to be 'Task 3', got %q", (*l)[1].Task)
+	}
+}
+
+func TestDeleteFirst(t *testing.T) {
+	l := &List{}
+	l.Add("Task 1")
+	l.Add("Task 2")
+
+	err := l.Delete(1)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if len(*l) != 1 {
+		t.Errorf("Expected 1 item after deletion, got %d", len(*l))
+	}
+
+	if (*l)[0].Task != "Task 2" {
+		t.Errorf("Expected remaining item to be 'Task 2', got %q", (*l)[0].Task)
+	}
+}
+
+func TestDeleteLast(t *testing.T) {
+	l := &List{}
+	l.Add("Task 1")
+	l.Add("Task 2")
+
+	err := l.Delete(2)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if len(*l) != 1 {
+		t.Errorf("Expected 1 item after deletion, got %d", len(*l))
+	}
+
+	if (*l)[0].Task != "Task 1" {
+		t.Errorf("Expected remaining item to be 'Task 1', got %q", (*l)[0].Task)
+	}
+}
+
+func TestDeleteInvalidIndex(t *testing.T) {
+	l := &List{}
+	l.Add("Test Task")
+
+	testCases := []struct {
+		index int
+		desc  string
+	}{
+		{0, "zero index"},
+		{-1, "negative index"},
+		{2, "index too high"},
+	}
+
+	for _, tc := range testCases {
+		err := l.Delete(tc.index)
+		if err == nil {
+			t.Errorf("Expected error for %s (index %d), got none", tc.desc, tc.index)
+		}
+	}
+}
+
+func TestSave(t *testing.T) {
+	l := &List{}
+	l.Add("Task 1")
+	l.Add("Task 2")
+	l.Complete(1)
+
+	tmpFile := "test_todo.json"
+	defer os.Remove(tmpFile)
+
+	err := l.Save(tmpFile)
+	if err != nil {
+		t.Errorf("Expected no error saving, got %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
+		t.Error("Expected file to exist after save")
+	}
+
+	// Verify file content
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		t.Errorf("Error reading saved file: %v", err)
+	}
+
+	var savedList List
+	err = json.Unmarshal(data, &savedList)
+	if err != nil {
+		t.Errorf("Error unmarshaling saved data: %v", err)
+	}
+
+	if len(savedList) != 2 {
+		t.Errorf("Expected 2 items in saved file, got %d", len(savedList))
+	}
+}
+
+func TestGet(t *testing.T) {
+	// Create test data
+	originalList := &List{}
+	originalList.Add("Task 1")
+	originalList.Add("Task 2")
+	originalList.Complete(1)
+
+	tmpFile := "test_todo_get.json"
+	defer os.Remove(tmpFile)
+
+	// Save test data
+	err := originalList.Save(tmpFile)
+	if err != nil {
+		t.Fatalf("Error saving test data: %v", err)
+	}
+
+	// Load data into new list
+	loadedList := &List{}
+	err = loadedList.Get(tmpFile)
+	if err != nil {
+		t.Errorf("Expected no error loading, got %v", err)
+	}
+
+	if len(*loadedList) != 2 {
+		t.Errorf("Expected 2 items after loading, got %d", len(*loadedList))
+	}
+
+	if (*loadedList)[0].Task != "Task 1" {
+		t.Errorf("Expected first task to be 'Task 1', got %q", (*loadedList)[0].Task)
+	}
+
+	if (*loadedList)[0].Done != true {
+		t.Errorf("Expected first task to be completed, got %t", (*loadedList)[0].Done)
+	}
+
+	if (*loadedList)[1].Task != "Task 2" {
+		t.Errorf("Expected second task to be 'Task 2', got %q", (*loadedList)[1].Task)
+	}
+
+	if (*loadedList)[1].Done != false {
+		t.Errorf("Expected second task to be incomplete, got %t", (*loadedList)[1].Done)
+	}
+}
+
+func TestGetNonExistentFile(t *testing.T) {
+	l := &List{}
+
+	err := l.Get("non_existent_file.json")
+	if err != nil {
+		t.Errorf("Expected no error for non-existent file, got %v", err)
+	}
+
+	if len(*l) != 0 {
+		t.Errorf("Expected empty list for non-existent file, got %d items", len(*l))
+	}
+}
+
+func TestGetEmptyFile(t *testing.T) {
+	tmpFile := "empty_test.json"
+	defer os.Remove(tmpFile)
+
+	// Create empty file
+	err := os.WriteFile(tmpFile, []byte(""), 0644)
+	if err != nil {
+		t.Fatalf("Error creating empty test file: %v", err)
+	}
+
+	l := &List{}
+	err = l.Get(tmpFile)
+	if err != nil {
+		t.Errorf("Expected no error for empty file, got %v", err)
+	}
+
+	if len(*l) != 0 {
+		t.Errorf("Expected empty list for empty file, got %d items", len(*l))
+	}
+}
+
+func TestGetInvalidJSON(t *testing.T) {
+	tmpFile := "invalid_test.json"
+	defer os.Remove(tmpFile)
+
+	// Create file with invalid JSON
+	err := os.WriteFile(tmpFile, []byte("invalid json content"), 0644)
+	if err != nil {
+		t.Fatalf("Error creating invalid JSON test file: %v", err)
+	}
+
+	l := &List{}
+	err = l.Get(tmpFile)
+	if err == nil {
+		t.Error("Expected error for invalid JSON, got none")
+	}
+}
+
+func TestWorkflow(t *testing.T) {
+	l := &List{}
+
+	// Add tasks
+	l.Add("Learn Go")
+	l.Add("Write tests")
+	l.Add("Build project")
+
+	if len(*l) != 3 {
+		t.Errorf("Expected 3 tasks after adding, got %d", len(*l))
+	}
+
+	// Complete first task
+	err := l.Complete(1)
+	if err != nil {
+		t.Errorf("Error completing task: %v", err)
+	}
+
+	// Delete second task (index 2 after completion)
+	err = l.Delete(2)
+	if err != nil {
+		t.Errorf("Error deleting task: %v", err)
+	}
+
+	if len(*l) != 2 {
+		t.Errorf("Expected 2 tasks after deletion, got %d", len(*l))
+	}
+
+	// Verify remaining tasks
+	if (*l)[0].Task != "Learn Go" || (*l)[0].Done != true {
+		t.Error("First task should be 'Learn Go' and completed")
+	}
+
+	if (*l)[1].Task != "Build project" || (*l)[1].Done != false {
+		t.Error("Second task should be 'Build project' and incomplete")
+	}
+
+	// Test save and load
+	tmpFile := "workflow_test.json"
+	defer os.Remove(tmpFile)
+
+	err = l.Save(tmpFile)
+	if err != nil {
+		t.Errorf("Error saving: %v", err)
+	}
+
+	newList := &List{}
+	err = newList.Get(tmpFile)
+	if err != nil {
+		t.Errorf("Error loading: %v", err)
+	}
+
+	if len(*newList) != 2 {
+		t.Errorf("Expected 2 tasks after loading, got %d", len(*newList))
+	}
+}
+
+func TestTimeFields(t *testing.T) {
+	l := &List{}
+
+	before := time.Now()
+	l.Add("Time test task")
+	after := time.Now()
+
+	createdAt := (*l)[0].CreatedAt
+	if createdAt.Before(before) || createdAt.After(after) {
+		t.Error("CreatedAt should be between before and after timestamps")
+	}
+
+	// Complete the task
+	beforeComplete := time.Now()
+	l.Complete(1)
+	afterComplete := time.Now()
+
+	completedAt := (*l)[0].CompletedAt
+	if completedAt.Before(beforeComplete) || completedAt.After(afterComplete) {
+		t.Error("CompletedAt should be between beforeComplete and afterComplete timestamps")
+	}
+
+	if completedAt.Before(createdAt) {
+		t.Error("CompletedAt should be after CreatedAt")
+	}
+}
